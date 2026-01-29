@@ -44,5 +44,14 @@ List related resources including files, PRs, and documents:
   https://notion.so/yyy → PRD
 
 ### 4. Verification
-  Test commands or verification methods
-  Example: `go test -run TestXxx ./...`
+Include decision table (when applicable) and test commands:
+
+#### Decision Table (for complex conditional logic)
+| Condition A | Condition B | Condition C | Expected Result |
+|-------------|-------------|-------------|-----------------|
+| Y           | Y           | -           | Result 1        |
+| Y           | N           | Y           | Result 2        |
+| N           | -           | -           | Result 3        |
+
+#### Test Commands
+  `go test -run TestXxx ./...`
