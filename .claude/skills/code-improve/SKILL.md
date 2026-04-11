@@ -4,7 +4,7 @@ description: Analyze source code for improvements across security, performance, 
 disable-model-invocation: true
 ---
 
-This skill performs multi-pass source code analysis to find actionable improvements. It uses category-specific expert analysis and produces a structured report with severity levels and concrete fix suggestions.
+This skill performs multi-pass source code analysis to find actionable improvements. It uses category-specific expert analysis via sub agents and produces a structured report with severity levels and concrete fix suggestions.
 
 ## Phase 1: Scope Clarification
 
@@ -22,25 +22,72 @@ Use `AskUserQuestion` to ask the user:
 
 If `$ARGUMENTS` is provided, treat it as the target path and default to all categories with deep analysis. Still confirm with the user before proceeding.
 
-## Phase 2: Code Reading
+## Phase 2: File Discovery
 
-Before any analysis:
-
-1. Use `Glob` to discover all target files matching the user's scope.
-2. Detect the primary language(s) from file extensions:
+1. Normalize the user's target into a glob pattern:
+   - **Single file** (`internal/auth/handler.go`) → use as-is
+   - **Directory** (`internal/auth` or `internal/auth/`) → expand recursively to `{target}/**/*.{go,ts,tsx,py}` (include all supported extensions, not just one language — a directory may be polyglot)
+   - **Glob pattern** (`src/**/*.go`, `internal/**/*.{ts,tsx}`) → use as-is
+   - **Repo root** (`.`) → warn the user about cost (5 parallel sub agents × many files) and confirm before proceeding
+2. Use `Glob` with the normalized pattern to collect the list of target file paths.
+3. Exclude common noise paths unless the user explicitly included them: `node_modules/`, `vendor/`, `dist/`, `build/`, `.git/`, `*_test.go` / `*.test.ts` / `test_*.py` (tests are usually analyzed separately, but include them if the user asked).
+4. Detect the primary language(s) from file extensions of the collected files:
    - `.go` → Go
    - `.ts`, `.tsx` → TypeScript
    - `.py` → Python
    - Other → apply general analysis only
-3. Use `Read` to read each target file. For large files (>500 lines), read in segments.
-4. Note the project structure, module boundaries, and existing patterns.
-5. If available, read the project's linter configuration (`.golangci.yml`, `.eslintrc.*`, `pyproject.toml`, `ruff.toml`) to understand existing rules and avoid duplicate findings.
+5. Collect the final list of file paths. **Do not read file contents** — sub agents will read them independently.
+6. If available, note the project's linter configuration path (`.golangci.yml`, `.eslintrc.*`, `pyproject.toml`, `ruff.toml`) to pass to sub agents.
 
-## Phase 3: Multi-Pass Analysis
+## Phase 3: Multi-Pass Analysis via Sub Agents
 
-Run a separate analysis pass for each selected category. For each pass, adopt the specified expert persona and focus exclusively on that category.
+For each selected category, launch an `Agent` (sub agent, `subagent_type: "general-purpose"`) with:
+- The category-specific persona and checklist (from below)
+- The list of target file paths
+- The detected language(s)
+- The linter configuration path (if found)
 
-### Pass 1: Security (Persona: Senior Security Engineer)
+**Launch all sub agents in a single message (multiple `Agent` tool calls in one response) so they run in parallel.** Sequential invocation defeats the purpose of this design.
+
+Each sub agent independently:
+1. For each detected target language, reads `checks/{lang}.md` (e.g., `checks/go.md`) and treats the `## {Category}` section as **illustrative examples** of what to look for — not an exhaustive list. Combine with the generic checks below and apply the same principles to unlisted but equivalent issues.
+2. Reads `checks/patterns.md` and, when target code exhibits any pattern's **Trigger** (outbound HTTP client, DB query, cache, queue, background job, file I/O, logging, rate limiting, auth/session, config/feature flags), applies that pattern's **Checklist**. Pattern findings are language-agnostic and get classified under the most relevant category.
+3. Reads the target files using `Read`
+4. If a linter configuration exists, reads it to avoid duplicate findings
+5. Performs analysis for its assigned category only
+6. Returns findings as structured JSON
+
+### Cross-cutting: Deprecated / Legacy Usage
+
+Across all categories, sub agents should flag any code using APIs, syntax, or patterns known to be deprecated or legacy in the target language ecosystem. Rely on LLM knowledge — do not enumerate specific APIs. Each language has a deprecation convention that serves as a signal:
+
+- **Go**: `Deprecated:` marker in godoc (`staticcheck` SA1019 territory)
+- **Python**: `DeprecationWarning` / `PendingDeprecationWarning`; APIs removed or scheduled for removal in recent CPython releases
+- **TypeScript / JavaScript**: `@deprecated` JSDoc annotation; legacy language features
+
+When uncertain about the deprecation status of a specific API, note the uncertainty rather than reporting it as definitive (see `Avoid false positives` principle). Deprecated usage findings are classified under **Refactoring** unless they constitute a security or performance issue.
+
+### Sub Agent Output Format
+
+Each sub agent must return a JSON array:
+
+```json
+[
+  {
+    "id": "S1",
+    "category": "Security",
+    "title": "Brief title",
+    "file": "path/to/file.go",
+    "line": 42,
+    "severity": "Critical|High|Medium|Low",
+    "current_code": "// problematic code snippet",
+    "issue": "Clear explanation of the problem and its impact",
+    "suggested_fix": "// improved code snippet"
+  }
+]
+```
+
+### Category: Security (Persona: Senior Security Engineer)
 
 Analyze for:
 - **Injection vulnerabilities**: SQL injection, command injection, XSS, path traversal
@@ -51,12 +98,9 @@ Analyze for:
 - **Concurrency safety**: race conditions, unprotected shared state, goroutine leaks (Go)
 - **Auth/AuthZ gaps**: missing authentication checks, privilege escalation paths
 
-Language-specific security checks:
-- **Go**: `unsafe` package usage, unchecked `os/exec`, SQL string concatenation, missing `context.Context` for cancellation
-- **TypeScript**: `eval()`, `innerHTML`, `dangerouslySetInnerHTML`, unvalidated URL construction, prototype pollution
-- **Python**: `pickle.loads()` on untrusted data, `subprocess.shell=True`, `eval()`/`exec()`, YAML `load()` vs `safe_load()`
+For language-specific security checks, see `checks/{lang}.md` → `## Security` section.
 
-### Pass 2: Performance (Persona: Performance Engineer)
+### Category: Performance (Persona: Performance Engineer)
 
 Analyze for:
 - **Algorithmic inefficiency**: O(n^2) or worse where O(n log n) or O(n) is possible
@@ -67,12 +111,9 @@ Analyze for:
 - **Blocking in hot paths**: I/O or locks in performance-critical code
 - **Unnecessary copies**: large struct copies where pointers would suffice
 
-Language-specific performance checks:
-- **Go**: unnecessary `append` pre-allocation missing, `string([]byte)` conversions in loops, sync.Pool opportunities, excessive goroutine creation, `defer` in tight loops
-- **TypeScript**: synchronous operations blocking event loop, missing `Promise.all` for parallel async, large bundle imports where tree-shaking is possible, unnecessary re-renders (React)
-- **Python**: list comprehension vs generator for large datasets, missing `__slots__`, GIL-bound CPU work that should use multiprocessing
+For language-specific performance checks, see `checks/{lang}.md` → `## Performance` section.
 
-### Pass 3: Refactoring (Persona: Software Architect)
+### Category: Refactoring (Persona: Software Architect)
 
 Analyze for:
 - **God functions/methods**: functions doing too many things (>40 lines, multiple responsibilities)
@@ -84,12 +125,9 @@ Analyze for:
 - **Long parameter lists**: >4 parameters (consider parameter objects or builder pattern)
 - **Primitive obsession**: using primitive types where domain types would be clearer
 
-Language-specific refactoring checks:
-- **Go**: error wrapping with `%w` vs `%v`, table-driven tests opportunities, interface segregation (large interfaces that should be split), exported names that could be unexported
-- **TypeScript**: `any` type usage, missing discriminated unions, callback hell vs async/await, barrel file bloat
-- **Python**: missing dataclasses/NamedTuple for data containers, bare `except:` clauses, mutable default arguments
+For language-specific refactoring checks, see `checks/{lang}.md` → `## Refactoring` section.
 
-### Pass 4: Code Smells (Persona: Code Quality Specialist)
+### Category: Code Smells (Persona: Code Quality Specialist)
 
 Analyze for:
 - **Feature envy**: methods that use another object's data more than their own
@@ -101,40 +139,18 @@ Analyze for:
 - **Speculative generality**: abstractions for scenarios that don't exist yet
 - **Temporal coupling**: operations that must happen in a specific order but nothing enforces it
 
-### Pass 5: Best Practices (Persona: Language Expert)
+For language-specific code smells, see `checks/{lang}.md` → `## Code Smells` section.
 
-**Go best practices:**
-- Proper error wrapping with `fmt.Errorf("...: %w", err)`
-- Context propagation through call chains
-- Goroutine lifecycle management (ensure goroutines can be stopped)
-- Interface design: accept interfaces, return concrete types
-- Meaningful variable names (avoid single-letter except `i`, `j`, `k` in loops, `err`, `ctx`)
-- Proper use of `sync` primitives
-- Table-driven tests with clear test case names
+### Category: Best Practices (Persona: Language Expert)
 
-**TypeScript best practices:**
-- Strict typing (no `any` without justification)
-- Null/undefined safety (optional chaining, nullish coalescing)
-- Proper async/await error handling (try/catch around await)
-- Immutability where appropriate (`readonly`, `as const`)
-- Discriminated unions over type assertions
-- Proper module organization and exports
-
-**Python best practices:**
-- Type hints for function signatures and complex variables
-- Context managers for resource management (`with` statements)
-- Specific exception types (never bare `except:`)
-- Pathlib over os.path for file operations
-- f-strings over `.format()` or `%` formatting
-- Proper `__init__.py` and module structure
-- Docstrings for public API functions
+Best practices are almost entirely language-idiomatic. Sub agents must read `checks/{lang}.md` → `## Best Practices` section for each detected language and treat it as the complete checklist for this category.
 
 ## Phase 4: Consolidation
 
-After all passes complete:
+Collect the JSON results from all sub agents, then:
 
 1. **Deduplicate**: Remove findings that overlap across categories (keep in the most relevant category)
-2. **Assign severity**:
+2. **Validate severity** assignments:
    - **Critical**: Security vulnerabilities that could be exploited, data loss risks
    - **High**: Significant performance issues, major design flaws, potential bugs
    - **Medium**: Code smells that impact maintainability, minor performance issues
@@ -185,6 +201,7 @@ Present findings in this format:
 
 ## Principles
 
+- **Judge from general principles** — This skill reasons from general principles, not from enumerated rule databases. The items in `checks/{lang}.md` and `checks/patterns.md` are **illustrative examples**, not exhaustive checklists. Sub agents must recognize equivalent issues through the underlying principle (e.g., "avoid unbounded resource consumption", "prefer modern idioms over legacy APIs", "validate at trust boundaries"), even when the specific API, library, or syntax is not explicitly listed. Use LLM knowledge of the language ecosystem to identify issues that rhyme with the listed examples. For exhaustive rule enforcement, defer to linters (`staticcheck`, `ruff`, `eslint`, etc.) — this skill's value is reasoning, not rule matching.
 - **Never analyze from descriptions alone** — always read the actual code first.
 - **Be specific** — every finding must include the exact file path and line reference.
 - **Be actionable** — every finding must include a concrete code suggestion, not just a problem description.
