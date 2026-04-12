@@ -54,16 +54,22 @@ The sub agent has no context beyond its prompt. The parent must include all of t
 4. **Detected language(s)** — so the sub agent knows which `checks/{lang}.md` to read
 5. **Linter configuration path** — if found in Phase 2
 6. **Output format** — copy the "Sub Agent Output Format" section into the prompt
-7. **Instruction to read reference files** — tell the sub agent to read `checks/{lang}.md` and `checks/patterns.md` at the paths relative to this skill directory (provide the absolute paths)
+7. **Instruction to read reference files** — tell the sub agent to read `checks/{lang}.md` and `checks/patterns.md` at the paths relative to this skill directory (provide the absolute paths). Emphasize that items in these files are illustrative examples grouped by underlying principle — not exhaustive checklists. The sub agent must report equivalent issues even when they are not explicitly listed.
 
 ### What each sub agent does independently
 
-1. Reads `checks/{lang}.md` (e.g., `checks/go.md`) for each detected language and treats the `## {Category}` section as **illustrative examples** of what to look for — not an exhaustive list. Combines with the category description from its prompt and applies the same principles to unlisted but equivalent issues.
-2. Reads `checks/patterns.md` and, when target code exhibits any pattern's **Trigger** (outbound HTTP client, DB query, cache, queue, background job, file I/O, logging, rate limiting, auth/session, config/feature flags), applies that pattern's **Checklist**. Pattern findings are language-agnostic and get classified under the most relevant category.
+1. Reads `checks/{lang}.md` (e.g., `checks/go.md`) for each detected language. Items are grouped under **principles** — the sub agent applies each principle broadly, using the listed items only as representative examples. Equivalent issues not explicitly listed must still be reported if the underlying principle applies.
+2. Reads `checks/patterns.md` and, when target code exhibits any pattern's **Trigger** (outbound HTTP client, DB query, cache, queue, background job, file I/O, logging, rate limiting, auth/session, config/feature flags), applies that pattern's **Checklist**. Each checklist item represents something that **should exist** — a checklist item absent from the code is itself a finding. Pattern findings are language-agnostic and get classified under the most relevant category.
 3. Reads the target files using `Read`
 4. If a linter configuration exists, reads it to avoid duplicate findings
 5. Performs analysis for its assigned category only
 6. Returns findings as structured JSON
+
+**Two analysis modes** — sub agents must analyze from both directions:
+- **What's wrong**: problems in existing code (bugs, inefficiencies, anti-patterns)
+- **What's missing**: capabilities that should exist but don't (error handling, timeouts, retry logic, validation, observability)
+
+The "what's missing" mode is structurally harder — it requires reasoning about what the code *should* do based on its purpose, not just what it *does* do. The `checks/patterns.md` checklists are primarily "should-exist" lists and are the main driver for this mode. Sub agents must actively look for absent capabilities, not only present defects.
 
 ### Cross-cutting: Deprecated / Legacy Usage
 
@@ -151,14 +157,15 @@ For language-specific code smells, see `checks/{lang}.md` → `## Code Smells` s
 
 ### Category: Best Practices (Persona: Language Expert)
 
-Best practices are almost entirely language-idiomatic. Sub agents must read `checks/{lang}.md` → `## Best Practices` section for each detected language and treat it as the complete checklist for this category.
+Best practices are almost entirely language-idiomatic. Sub agents must read `checks/{lang}.md` → `## Best Practices` section for each detected language as the primary reference for this category, applying the same principle-based reasoning to unlisted but equivalent idioms.
 
 ## Phase 4: Consolidation
 
 Collect the JSON results from all sub agents, then:
 
 1. **Deduplicate**: Remove findings that overlap across categories (keep in the most relevant category)
-2. **Validate severity** assignments:
+2. **Check for partial coverage gaps**: When multiple findings touch the same area (e.g., connection resilience), verify that each distinct concern is addressed independently. A finding about timeouts does not satisfy the need for retry logic, even though both relate to "resilience." Cross-reference `checks/patterns.md` checklists against reported findings — if a triggered pattern has checklist items not covered by any finding, flag the gap as an additional finding.
+3. **Validate severity** assignments:
    - **Critical**: Security vulnerabilities that could be exploited, data loss risks
    - **High**: Significant performance issues, major design flaws, potential bugs
    - **Medium**: Code smells that impact maintainability, minor performance issues

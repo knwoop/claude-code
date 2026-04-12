@@ -1,183 +1,119 @@
 # Go-specific Checks
 
-Exhaustive Go checklist for the `code-improve` skill. Sub agents should read the `## {Category}` section matching their assigned category and combine it with the generic checks in `SKILL.md`.
+Items below are **illustrative examples grouped by principle**, not an exhaustive checklist. Sub agents must apply each principle broadly — if the code exhibits an issue that rhymes with a listed example but is not explicitly mentioned, report it. For exhaustive rule enforcement, defer to linters (`staticcheck`, `golangci-lint`).
 
 ## Security
 
-### Injection / Path / URL
+**Validate and sanitize at trust boundaries** — e.g.:
 - SQL string concatenation (use `database/sql` placeholders)
-- `os/exec.Command` with shell interpretation (`sh -c`) or unsanitized user input
+- `os/exec.Command` with `sh -c` or unsanitized user input
 - `filepath.Join` without `filepath.Clean` → path traversal
-- `http.ServeFile` / `http.Dir` with user-controlled paths
 - `html/template` vs `text/template` misuse → XSS
-- `text/template` used for HTML output
-- Unvalidated outbound URLs in `http.Get` / `http.Client` → SSRF
+- Unvalidated outbound URLs → SSRF
 
-### Crypto / Auth
+**Use cryptographically secure primitives** — e.g.:
 - `math/rand` instead of `crypto/rand` for tokens, nonces, session IDs
 - `crypto/tls` with `InsecureSkipVerify: true`
-- JWT parsing without algorithm verification (`alg: none` attack)
-- MD5 / SHA1 for security (password hashing, integrity)
-- Password hashing with anything other than bcrypt / scrypt / argon2
+- MD5 / SHA1 for security-sensitive purposes (passwords, integrity)
 - Hardcoded keys, API tokens, credentials
 
-### DoS / Resource Exhaustion
+**Bound resource consumption** — e.g.:
 - Unbounded `io.ReadAll` on request body → memory exhaustion
-- Missing `http.MaxBytesReader` for request size limits
-- `http.Server` / `http.Client` without timeouts (slowloris, SSRF amplification)
+- `http.Server` / `http.Client` without timeouts
 - Unbounded goroutine creation per request
 - Goroutine leaks from missing `context.Context` propagation
-- Regex with catastrophic backtracking on user input (ReDoS)
-- Unbounded channel buffering
 
-### Deserialization
-- `encoding/xml` XXE / billion laughs attacks
-- `encoding/gob` decoding untrusted data
+**Treat deserialized data as untrusted** — e.g.:
+- `encoding/xml` XXE / billion laughs
 - `encoding/json` unbounded nesting depth
 - YAML deserialization without type restrictions
 
-### File / Filesystem
-- `os.OpenFile` with world-writable modes (`0666`, `0777`)
-- TOCTOU races (`os.Stat` then `os.Open`)
-- `ioutil.TempFile` with predictable paths (use `os.CreateTemp`)
-- `os.Create` / `os.Remove` on user-controlled paths without validation
-
-### Information Leaks
+**Don't leak internal details** — e.g.:
 - Error messages exposing internal paths, SQL statements, stack traces
-- Panic not recovered at HTTP boundary → stack trace leak
+- Unrecovered panic at HTTP boundary → stack trace leak
 - `net/http/pprof` exposed in production
-- Debug endpoints mounted on production handlers
 
-### Other
-- `unsafe` package usage
-- Type assertion without comma-ok idiom → panic DoS
-- Outdated dependencies (`govulncheck` violations)
-- `reflect` exposing unexported fields
+**Avoid unsafe escape hatches** — e.g.:
+- `unsafe` package usage without justification
+- Type assertion without comma-ok idiom → panic on unexpected types
+- `os.OpenFile` with world-writable modes (`0666`, `0777`)
 
 ## Performance
 
-### Allocation
+**Minimize allocations in hot paths** — e.g.:
 - `append` without pre-allocated capacity (`make([]T, 0, n)`)
-- `string([]byte)` / `[]byte(string)` conversions in hot loops
 - String concatenation in loops (use `strings.Builder`)
-- `fmt.Sprintf` where simple concatenation / `strconv` works
 - Map without size hint (`make(map[K]V, n)`)
-- `json.Marshal` / `json.Unmarshal` in hot paths (consider code-gen like easyjson)
-- Unnecessary interface boxing in hot paths
+- `json.Marshal` / `json.Unmarshal` in hot paths (consider code-gen)
 
-### Concurrency
+**Choose the right concurrency primitive** — e.g.:
 - Goroutine-per-request without a worker pool
 - `sync.Mutex` where `sync.RWMutex` or `sync/atomic` would suffice
 - `sync.Pool` opportunities for frequently allocated objects
-- Unbuffered channels in high-throughput paths
 
-### Hot Path Waste
+**Hoist invariant work out of loops** — e.g.:
 - `defer` inside tight loops (overhead accumulates)
-- Regex compilation inside loops (hoist to package-level `var re = regexp.MustCompile(...)`)
-- `time.Now()` / `log.Print` in hot loops
-- `reflect` in hot paths
-- Large struct copies where pointer would suffice
-- `fmt.Println` / `log` calls on hot paths
+- Regex compilation inside loops (hoist to package-level `regexp.MustCompile`)
+- `reflect` calls in hot paths
 
-### Algorithmic (Go-specific nuances)
+**Pick the right algorithm / data structure** — e.g.:
 - Linear scan of large slice where sorted + `sort.Search` would work
-- Redundant recomputation without caching
 - Missing `context.Context` cancellation → doing work that will be discarded
-- Map iteration where slice would suffice (order-dependent logic)
 
 ## Refactoring
 
-### Error Handling
+**Handle errors consistently and informatively** — e.g.:
 - `fmt.Errorf` with `%v` instead of `%w` for wrapping
 - Sentinel error compared with `==` instead of `errors.Is`
 - Type assertion instead of `errors.As`
-- Mixed error handling patterns within the same package
-- `log.Fatal` outside `main` / `init`
-- Silently ignored errors (`_, _ = `, blank receivers)
+- Silently ignored errors (`_, _ =`, blank receivers)
+- Inconsistent sentinel vs typed errors within the same package
 
-### Interface / Types
+**Design narrow, composable interfaces** — e.g.:
 - Large interfaces (>5 methods) — violate interface segregation
-- Accept concrete types, return interfaces (reverse of idiom)
 - `interface{}` / `any` where generics fit
-- Missing domain types (`type UserID string` over `string`)
-- Struct with >10 fields (consider decomposition)
+- Missing domain types (`type UserID string` over bare `string`)
 
-### API Design
+**Keep function signatures simple and idiomatic** — e.g.:
 - Functions with >4 parameters (use options struct / functional options)
-- Boolean flag parameters (use typed enums)
-- Multiple return values >3 (use named struct)
 - Missing `context.Context` as first parameter
 - `context.Context` stored in struct fields
-- `init()` with global state or hidden side effects
-- Exported symbols that could be unexported
+- `init()` with hidden side effects or global state
 
-### Testing
+**Write tests that are easy to extend** — e.g.:
 - Non-table-driven tests where parametrization fits
 - Missing `t.Helper()` in test helpers
-- `defer` instead of `t.Cleanup`
-- Test setup without subtests (`t.Run`)
+- `defer` cleanup instead of `t.Cleanup`
 
-### Package Organization
+**Organize packages by responsibility** — e.g.:
 - Package-level mutable state
-- Circular package dependencies
-- Deep package hierarchies
 - Utility packages (`utils`, `common`, `helpers`)
 
 ## Code Smells
 
-- Magic numbers in switch / if chains
+- Magic numbers / strings in switch / if chains
 - `panic` where `error` return is appropriate
-- Global logger instances threaded through package globals
 - Commented-out code blocks left in source
 - Stringly-typed APIs (string constants without a named type)
-- Boolean flag parameters
 - Premature goroutines (concurrency without clear need)
 - `defer` after error-prone operation (never runs on early error return)
-- Unused exported API
+- Boolean flag parameters (use typed enums or separate functions)
+- `init()` abuse creating hidden ordering dependencies
 - `fmt.Println` / `println` debug prints in production code
 - `TODO` / `FIXME` without issue reference
-- Inconsistent sentinel vs typed errors within the same package
-- `init()` abuse creating hidden ordering dependencies
 
 ## Best Practices
 
-### Error Handling
-- Wrap with `fmt.Errorf("context: %w", err)`
-- Inspect with `errors.Is` / `errors.As`
-- Sentinel errors at package level
-- Return errors; panic only for programmer bugs
+**Error handling** — wrap with `%w`, inspect with `errors.Is` / `errors.As`, return errors rather than panicking.
 
-### Context
-- `context.Context` as first parameter of any I/O / RPC function
-- Propagate through call chains
-- Never store in struct fields
-- Check `ctx.Err()` in long-running loops
+**Context propagation** — `context.Context` as first parameter of I/O functions, propagated through call chains, checked in long-running loops.
 
-### Concurrency
-- Every goroutine has a clear cancellation path
-- Document goroutine-safety on exported APIs
-- Use `sync/errgroup` for parallel operations with error aggregation
-- Channels for signaling, mutexes for state
+**Concurrency** — every goroutine has a clear cancellation path; `sync/errgroup` for parallel operations; channels for signaling, mutexes for state.
 
-### Interfaces
-- Accept interfaces, return concrete types
-- Small interfaces (1-3 methods)
-- Define at point of use, not point of implementation
+**Interfaces** — accept interfaces, return concrete types; keep interfaces small (1-3 methods); define at point of use.
 
-### Naming
-- Avoid stutter (`http.HTTPServer` → `http.Server`)
-- Conventional short names: `ctx`, `err`, `i`/`j`/`k` for loop indices
-- Short names in small scopes, descriptive in large scopes
+**Naming** — avoid stutter (`http.HTTPServer` → `http.Server`); short names in small scopes, descriptive in large scopes.
 
-### Testing
-- Table-driven tests with `t.Run` subtests
-- `t.Helper()` in helpers
-- `t.Cleanup` over `defer`
-- `cmp.Diff` over `reflect.DeepEqual`
-- `testing.TB` for helpers shared between `testing.T` and `testing.B`
+**Testing** — table-driven tests with `t.Run`; `t.Helper()` in helpers; `cmp.Diff` over `reflect.DeepEqual`.
 
-### Project Structure
-- `internal/` for non-exported packages
-- `cmd/` for binaries
-- Zero-value useful structs where possible
-- Package names: single word, lowercase, noun
+**Project structure** — `internal/` for non-exported packages; `cmd/` for binaries; zero-value useful structs; single-word lowercase package names.

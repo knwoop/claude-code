@@ -4,6 +4,8 @@ Cross-cutting checklist for common operational patterns that apply regardless of
 
 These checks are language-agnostic: Go `net/http`, Python `requests`/`httpx`, TypeScript `axios`/`fetch` all exhibit the same pattern and warrant the same checklist.
 
+The ten patterns below are common but not exhaustive — sub agents should apply the same discipline to analogous patterns (e.g., gRPC client, GraphQL resolver, blob storage access) even if not explicitly listed.
+
 Pattern-derived findings should be classified into the most relevant category (Security / Performance / Refactoring / Code Smells / Best Practices) during consolidation.
 
 ---
