@@ -28,7 +28,7 @@ If `$ARGUMENTS` is provided, treat it as the target path and default to all cate
    - **Single file** (`internal/auth/handler.go`) → use as-is
    - **Directory** (`internal/auth` or `internal/auth/`) → expand recursively to `{target}/**/*.{go,ts,tsx,py}` (include all supported extensions, not just one language — a directory may be polyglot)
    - **Glob pattern** (`src/**/*.go`, `internal/**/*.{ts,tsx}`) → use as-is
-   - **Repo root** (`.`) → warn the user about cost (6 parallel sub agents × many files) and confirm before proceeding
+   - **Repo root** (`.`) → warn the user about cost (many files will trigger grouping → 6 × N parallel sub agents) and confirm before proceeding
 2. Use `Glob` with the normalized pattern to collect the list of target file paths.
 3. Exclude common noise paths unless the user explicitly included them: `node_modules/`, `vendor/`, `dist/`, `build/`, `.git/`.
 4. Detect the primary language(s) from file extensions of the collected files:
@@ -39,9 +39,41 @@ If `$ARGUMENTS` is provided, treat it as the target path and default to all cate
 5. Collect the final list of file paths. **Do not read file contents** — sub agents will read them independently.
 6. If available, note the project's linter configuration path (`.golangci.yml`, `.eslintrc.*`, `pyproject.toml`, `ruff.toml`) to pass to sub agents.
 
+### File Grouping
+
+If the collected file count exceeds **20 files**, launch a **grouping agent** (`Agent`, `subagent_type: "general-purpose"`) to split files into focused groups. This is a sequential step — wait for the grouping agent to return before proceeding to Phase 3.
+
+**Grouping agent prompt must include:**
+- The full list of collected file paths
+- The detected language(s)
+- Instruction: "Group these files for parallel code review. Each group should contain 5–15 related files that a single reviewer can analyze together with sufficient context."
+
+**What the grouping agent does:**
+1. Reads the directory tree structure of the target files
+2. Groups files by package/module directory — files in the same directory belong together
+3. Merges related directories heuristically by name similarity and proximity (e.g., `internal/auth` + `internal/session`, `internal/api` + `internal/middleware`)
+4. Optionally reads import statements of a few representative files to confirm relatedness
+5. Splits directories that exceed 15 files into smaller groups
+6. Merges directories smaller than 3 files with the nearest related group
+7. Returns a JSON object mapping group labels to file lists:
+
+```json
+{
+  "groups": [
+    { "label": "auth-session", "files": ["internal/auth/handler.go", "internal/session/store.go", ...] },
+    { "label": "api-middleware", "files": ["internal/api/server.go", "internal/middleware/logging.go", ...] },
+    { "label": "cmd-config", "files": ["cmd/server/main.go", "pkg/config/config.go", ...] }
+  ]
+}
+```
+
+If file count is ≤ 20, skip the grouping agent — all files form a single group.
+
 ## Phase 3: Multi-Pass Analysis via Sub Agents
 
-For each selected category, launch an `Agent` (sub agent, `subagent_type: "general-purpose"`).
+Launch sub agents as follows:
+- **Single group** (≤ 20 files or grouping skipped): 1 sub agent per category → **6 sub agents**
+- **Multiple groups**: 1 sub agent per (category × group) → **6 × N sub agents** (where N = number of groups)
 
 **Launch all sub agents in a single message (multiple `Agent` tool calls in one response) so they run in parallel.** Sequential invocation defeats the purpose of this design.
 
@@ -56,15 +88,23 @@ The sub agent has no context beyond its prompt. The parent must include all of t
 5. **Linter configuration path** — if found in Phase 2
 6. **Output format** — copy the "Sub Agent Output Format" section into the prompt
 7. **Instruction to read reference files** — tell the sub agent to read `checks/{lang}.md` and `checks/patterns.md` at the paths relative to this skill directory (provide the absolute paths). Emphasize that items in these files are illustrative examples grouped by underlying principle — not exhaustive checklists. The sub agent must report equivalent issues even when they are not explicitly listed.
+8. **File group scope** (if grouping applied) — the sub agent's **primary target** is its assigned group's files. It may read files outside the group to follow imports, references, or type definitions when needed for context. Findings should focus on the primary files, but cross-package issues discovered while following references should still be reported.
 
 ### What each sub agent does independently
 
+**Step 1 — Load reference material:**
 1. Reads `checks/{lang}.md` (e.g., `checks/go.md`) for each detected language. Items are grouped under **principles** — the sub agent applies each principle broadly, using the listed items only as representative examples. Equivalent issues not explicitly listed must still be reported if the underlying principle applies.
 2. Reads `checks/patterns.md` and, when target code exhibits any pattern's **Trigger** (outbound HTTP client, DB query, cache, queue, background job, file I/O, logging, rate limiting, auth/session, config/feature flags), applies that pattern's **Checklist**. Each checklist item represents something that **should exist** — a checklist item absent from the code is itself a finding. Pattern findings are language-agnostic and get classified under the most relevant category.
-3. Reads the target files using `Read`
-4. If a linter configuration exists, reads it to avoid duplicate findings
-5. Performs analysis for its assigned category only
-6. Returns findings as structured JSON
+3. If a linter configuration exists, reads it to avoid duplicate findings.
+
+**Step 2 — Understand the code structure before analyzing:**
+4. Reads all target files using `Read`.
+5. **Map relationships between files** before looking for issues: identify import/dependency direction, caller → callee chains, interface implementations, middleware/interceptor ordering, and shared types. Build a mental model of how the files interact — not just what each file does in isolation.
+6. **Trace execution paths**: For key entry points (HTTP handlers, gRPC methods, CLI commands, event handlers), follow the call chain through the target files. When a chain leads outside the group, read the external file to understand the interaction boundary. Issues often hide at the seams between components — interceptor ordering, decorator chains, middleware composition, error propagation across layers.
+
+**Step 3 — Analyze with context:**
+7. Performs analysis for its assigned category, informed by the structural understanding from Step 2. Findings should reference the execution context (e.g., "this nil check is missing on the path from handler.ServeHTTP → service.Process → repo.Get") rather than reporting file-local symptoms in isolation.
+8. Returns findings as structured JSON.
 
 **Two analysis modes** — sub agents must analyze from both directions:
 - **What's wrong**: problems in existing code (bugs, inefficiencies, anti-patterns)
@@ -178,15 +218,19 @@ Best practices are almost entirely language-idiomatic. Sub agents must read `che
 
 Collect the JSON results from all sub agents, then:
 
-1. **Deduplicate**: Remove findings that overlap across categories (keep in the most relevant category)
+1. **Deduplicate**: Remove findings that overlap across categories or across groups (keep in the most relevant category). When grouping is applied, different groups' sub agents may report the same cross-package issue — deduplicate by file + line + category.
 2. **Check for partial coverage gaps**: When multiple findings touch the same area (e.g., connection resilience), verify that each distinct concern is addressed independently. A finding about timeouts does not satisfy the need for retry logic, even though both relate to "resilience." Cross-reference `checks/patterns.md` checklists against reported findings — if a triggered pattern has checklist items not covered by any finding, flag the gap as an additional finding.
-3. **Validate severity** assignments:
-   - **Critical**: Security vulnerabilities that could be exploited, data loss risks
-   - **High**: Significant performance issues, major design flaws, potential bugs
-   - **Medium**: Code smells that impact maintainability, minor performance issues
-   - **Low**: Style issues, minor best practice deviations, documentation gaps
-3. **Sort**: Order findings by severity (Critical → High → Medium → Low), then by file
-4. **Count**: Tally findings per category and severity
+3. **Re-evaluate severity based on impact scope**: Sub agents report severity from a local perspective. The parent agent must adjust severity by considering the broader impact:
+   - **Shared code amplifier**: A finding in a shared library, common middleware, or base package used across many callers is higher severity than the same finding in a leaf package. A Medium issue in `pkg/errors/` that all services import may warrant High.
+   - **Execution path criticality**: Issues on hot paths (request handling, authentication, data persistence) are higher severity than issues in setup/teardown or CLI tooling.
+   - **Blast radius**: Consider how many services, endpoints, or users are affected. An unrecovered panic in a per-request goroutine is more critical than one in a background cleanup job.
+   - Apply these adjustments to the base severity:
+     - **Critical**: Security vulnerabilities that could be exploited, data loss risks
+     - **High**: Significant performance issues, major design flaws, potential bugs
+     - **Medium**: Code smells that impact maintainability, minor performance issues
+     - **Low**: Style issues, minor best practice deviations, documentation gaps
+4. **Sort**: Order findings by severity (Critical → High → Medium → Low), then by file
+5. **Count**: Tally findings per category and severity
 
 ## Phase 5: Report
 
