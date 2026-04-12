@@ -77,6 +77,8 @@ Launch sub agents as follows:
 
 **Launch all sub agents in a single message (multiple `Agent` tool calls in one response) so they run in parallel.** Sequential invocation defeats the purpose of this design.
 
+**IMPORTANT**: Do not combine multiple categories into a single agent. The persona separation is load-bearing — combined agents systematically miss "what's missing" findings and cross-cutting security concerns. Always launch one agent per category (or per category × group).
+
 ### What the parent agent includes in each sub agent's prompt
 
 The sub agent has no context beyond its prompt. The parent must include all of the following:
