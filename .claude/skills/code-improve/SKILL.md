@@ -1,6 +1,6 @@
 ---
 name: code-improve
-description: Analyze source code for improvements across security, performance, refactoring, code smells, and best practices. Supports Go, TypeScript, and Python with language-specific checks.
+description: Analyze source code for improvements across security, correctness, performance, refactoring, code smells, and best practices. Supports Go, TypeScript, and Python with language-specific checks.
 disable-model-invocation: true
 ---
 
@@ -14,6 +14,7 @@ Use `AskUserQuestion` to ask the user:
 2. **Categories**: Which improvement categories to check?
    - All (default)
    - Security
+   - Correctness
    - Performance
    - Refactoring
    - Code Smells
@@ -27,7 +28,7 @@ If `$ARGUMENTS` is provided, treat it as the target path and default to all cate
    - **Single file** (`internal/auth/handler.go`) → use as-is
    - **Directory** (`internal/auth` or `internal/auth/`) → expand recursively to `{target}/**/*.{go,ts,tsx,py}` (include all supported extensions, not just one language — a directory may be polyglot)
    - **Glob pattern** (`src/**/*.go`, `internal/**/*.{ts,tsx}`) → use as-is
-   - **Repo root** (`.`) → warn the user about cost (5 parallel sub agents × many files) and confirm before proceeding
+   - **Repo root** (`.`) → warn the user about cost (6 parallel sub agents × many files) and confirm before proceeding
 2. Use `Glob` with the normalized pattern to collect the list of target file paths.
 3. Exclude common noise paths unless the user explicitly included them: `node_modules/`, `vendor/`, `dist/`, `build/`, `.git/`.
 4. Detect the primary language(s) from file extensions of the collected files:
@@ -69,7 +70,7 @@ The sub agent has no context beyond its prompt. The parent must include all of t
 - **What's wrong**: problems in existing code (bugs, inefficiencies, anti-patterns)
 - **What's missing**: capabilities that should exist but don't (error handling, timeouts, retry logic, validation, observability)
 
-The "what's missing" mode is structurally harder — it requires reasoning about what the code *should* do based on its purpose, not just what it *does* do. The `checks/patterns.md` checklists are primarily "should-exist" lists and are the main driver for this mode. Sub agents must actively look for absent capabilities, not only present defects.
+The "what's missing" mode is structurally harder — it requires reasoning about what the code *should* do based on its purpose, not just what it *does* do. The `checks/patterns.md` checklists are primarily "should-exist" lists and are the main driver for this mode. Sub agents must actively look for absent capabilities, not only present defects. However, absence may be intentional — frame missing-capability findings as "consider whether X is needed" rather than asserting a defect, unless the omission is clearly dangerous (e.g., no timeout on an HTTP client, no error check after a fallible call).
 
 ### Cross-cutting: Deprecated / Legacy Usage
 
@@ -126,6 +127,20 @@ Analyze for:
 - **Unnecessary copies**: large struct copies where pointers would suffice
 
 For language-specific performance checks, see `checks/{lang}.md` → `## Performance` section.
+
+### Category: Correctness (Persona: Senior Software Engineer — Runtime Correctness)
+
+Analyze for:
+- **Nil/null safety**: dereferencing potentially nil pointers, accessing nil maps/slices, unguarded optional access
+- **Error handling correctness**: swallowed errors causing incorrect subsequent behavior, wrong error variable checked
+- **Boundary conditions**: off-by-one, empty collection edge cases, integer overflow/underflow
+- **Concurrency correctness**: race conditions, deadlocks, closure variable capture, incorrect synchronization
+- **Type safety at runtime**: incorrect type assertions, unsafe casts producing silent wrong values
+- **Logic errors**: inverted conditions, wrong boolean operators, incorrect comparison
+- **Resource lifecycle**: use-after-close, double-close, leaked resources on error paths
+- **API contract violations**: misusing library/framework APIs in ways that cause silent incorrect behavior
+
+For language-specific correctness checks, see `checks/{lang}.md` → `## Correctness` section.
 
 ### Category: Refactoring (Persona: Software Architect)
 
@@ -223,5 +238,6 @@ Present findings in this format:
 - **Avoid false positives** — if unsure whether something is an issue, note the uncertainty rather than reporting it as definitive.
 - **Respect existing patterns** — if the codebase consistently uses a pattern, don't flag it as an issue unless it's a genuine problem (security, correctness).
 - **Consider context** — a pattern that's fine in a CLI tool may be problematic in a web server. Adjust severity based on the application context.
+- **Stay domain-agnostic** — This skill analyzes from general engineering principles without knowledge of business requirements, domain logic, or intended product behavior. Do not infer what the code *should* do from domain context (e.g., "this looks like a payment flow, so it should have idempotency"). Judge only from what is observable in the code: types, control flow, API contracts, and language semantics. When a finding would only be valid under certain business assumptions, state the assumption explicitly (e.g., "if this operation is intended to be retryable, consider adding..."). This principle applies especially to "what's missing" findings and Correctness findings — both are prone to projecting requirements that may not exist.
 - **Don't flag what linters catch** — if the project has a linter configured, focus on issues beyond what the linter already enforces.
 - **Suggest, don't demand** — present findings as recommendations for human review, not automatic fixes.

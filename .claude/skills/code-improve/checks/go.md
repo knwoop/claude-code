@@ -60,6 +60,31 @@ Items below are **illustrative examples grouped by principle**, not an exhaustiv
 - Linear scan of large slice where sorted + `sort.Search` would work
 - Missing `context.Context` cancellation → doing work that will be discarded
 
+## Correctness
+
+**Guard against nil/zero-value traps** — e.g.:
+- Write to nil map (panic)
+- Method call on nil pointer where receiver is dereferenced
+- Unguarded type assertion without comma-ok
+
+**Verify concurrency correctness** — e.g.:
+- Loop variable captured by goroutine closure (pre-Go 1.22)
+- `sync.WaitGroup.Add` called after goroutine launch
+- Missing mutex unlock on all code paths (especially error returns)
+- Channel operations on nil channel (blocks forever)
+- `time.After` in select loop (leaks timers each iteration)
+
+**Check boundary and logic conditions** — e.g.:
+- Off-by-one in slice operations
+- Wrong error variable checked after multi-return call
+- Inverted boolean condition or wrong comparison operator
+- Integer overflow in length/capacity calculations
+
+**Validate resource lifecycle** — e.g.:
+- Use-after-close on `*os.File`, `*sql.DB`, network connections
+- Missing `defer close` on error paths (resource created, early return skips cleanup)
+- `context.CancelFunc` not called (leaked context)
+
 ## Refactoring
 
 **Handle errors consistently and informatively** — e.g.:

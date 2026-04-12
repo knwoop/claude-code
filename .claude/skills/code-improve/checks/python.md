@@ -38,6 +38,29 @@ Items below are **illustrative examples grouped by principle**, not an exhaustiv
 - N+1 queries (missing `select_related` / `prefetch_related`)
 - Pandas `iterrows` where vectorized ops work
 
+## Correctness
+
+**Guard against common runtime traps** — e.g.:
+- `is` vs `==` for value comparison (identity vs equality)
+- Mutable default arguments causing shared state across calls
+- Modifying a collection while iterating over it
+- Missing `await` on coroutine (coroutine never executes)
+
+**Check boundary and logic conditions** — e.g.:
+- Off-by-one in range/slice operations
+- Integer division truncation (`/` vs `//` in Python 3)
+- Incorrect exception variable scope (`except ... as e` rebound)
+- Catching too-broad exceptions masking unrelated bugs
+
+**Validate resource lifecycle** — e.g.:
+- File/connection not closed on error paths (missing `with` statement)
+- `asyncio` task created but never awaited (fire-and-forget without error handling)
+
+**Verify concurrency correctness** — e.g.:
+- Late binding closures in loops passed to threads/processes
+- Shared mutable state across threads without locking
+- `asyncio.gather` without `return_exceptions=True` losing errors
+
 ## Refactoring
 
 - Missing `dataclass` / `NamedTuple` for data containers

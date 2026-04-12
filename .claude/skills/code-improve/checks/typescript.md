@@ -36,6 +36,28 @@ Items below are **illustrative examples grouped by principle**, not an exhaustiv
 - Missing virtualization for long lists
 - Missing code splitting / lazy loading at route boundaries
 
+## Correctness
+
+**Guard against silent undefined/null traps** — e.g.:
+- Array index access returning `undefined` without check
+- Optional chaining (`?.`) silently producing `undefined` in arithmetic/logic
+- `in` operator on arrays (checks index, not value)
+
+**Check async correctness** — e.g.:
+- Missing `await` (function returns Promise instead of resolved value)
+- `forEach` with async callback (doesn't await iterations)
+- Unhandled promise rejection (missing `.catch` or try/catch)
+
+**Check boundary and logic conditions** — e.g.:
+- Floating point comparison (`0.1 + 0.2 === 0.3` is false)
+- Object spread order silently overwriting intended values
+- Incorrect truthiness check (empty string, `0`, `NaN` are falsy)
+
+**Validate resource lifecycle** — e.g.:
+- Event listeners not removed (memory leak in SPA)
+- `setInterval` / `setTimeout` not cleared on component unmount
+- `AbortController` signal not checked after long async operation
+
 ## Refactoring
 
 **Leverage the type system** — e.g.:
