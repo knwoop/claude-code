@@ -18,9 +18,8 @@ Use `AskUserQuestion` to ask the user:
    - Refactoring
    - Code Smells
    - Best Practices
-3. **Depth**: Quick scan (top issues only) or deep analysis (comprehensive)?
 
-If `$ARGUMENTS` is provided, treat it as the target path and default to all categories with deep analysis. Still confirm with the user before proceeding.
+If `$ARGUMENTS` is provided, treat it as the target path and default to all categories. Still confirm with the user before proceeding.
 
 ## Phase 2: File Discovery
 
@@ -30,7 +29,7 @@ If `$ARGUMENTS` is provided, treat it as the target path and default to all cate
    - **Glob pattern** (`src/**/*.go`, `internal/**/*.{ts,tsx}`) → use as-is
    - **Repo root** (`.`) → warn the user about cost (5 parallel sub agents × many files) and confirm before proceeding
 2. Use `Glob` with the normalized pattern to collect the list of target file paths.
-3. Exclude common noise paths unless the user explicitly included them: `node_modules/`, `vendor/`, `dist/`, `build/`, `.git/`, `*_test.go` / `*.test.ts` / `test_*.py` (tests are usually analyzed separately, but include them if the user asked).
+3. Exclude common noise paths unless the user explicitly included them: `node_modules/`, `vendor/`, `dist/`, `build/`, `.git/`.
 4. Detect the primary language(s) from file extensions of the collected files:
    - `.go` → Go
    - `.ts`, `.tsx` → TypeScript
@@ -41,16 +40,25 @@ If `$ARGUMENTS` is provided, treat it as the target path and default to all cate
 
 ## Phase 3: Multi-Pass Analysis via Sub Agents
 
-For each selected category, launch an `Agent` (sub agent, `subagent_type: "general-purpose"`) with:
-- The category-specific persona and checklist (from below)
-- The list of target file paths
-- The detected language(s)
-- The linter configuration path (if found)
+For each selected category, launch an `Agent` (sub agent, `subagent_type: "general-purpose"`).
 
 **Launch all sub agents in a single message (multiple `Agent` tool calls in one response) so they run in parallel.** Sequential invocation defeats the purpose of this design.
 
-Each sub agent independently:
-1. For each detected target language, reads `checks/{lang}.md` (e.g., `checks/go.md`) and treats the `## {Category}` section as **illustrative examples** of what to look for — not an exhaustive list. Combine with the generic checks below and apply the same principles to unlisted but equivalent issues.
+### What the parent agent includes in each sub agent's prompt
+
+The sub agent has no context beyond its prompt. The parent must include all of the following:
+
+1. **Persona** — the category-specific role (e.g., "You are a Senior Security Engineer")
+2. **Category description** — copy the relevant category section from this file (e.g., "### Category: Security") into the prompt verbatim
+3. **Target file paths** — the full list of files to analyze
+4. **Detected language(s)** — so the sub agent knows which `checks/{lang}.md` to read
+5. **Linter configuration path** — if found in Phase 2
+6. **Output format** — copy the "Sub Agent Output Format" section into the prompt
+7. **Instruction to read reference files** — tell the sub agent to read `checks/{lang}.md` and `checks/patterns.md` at the paths relative to this skill directory (provide the absolute paths)
+
+### What each sub agent does independently
+
+1. Reads `checks/{lang}.md` (e.g., `checks/go.md`) for each detected language and treats the `## {Category}` section as **illustrative examples** of what to look for — not an exhaustive list. Combines with the category description from its prompt and applies the same principles to unlisted but equivalent issues.
 2. Reads `checks/patterns.md` and, when target code exhibits any pattern's **Trigger** (outbound HTTP client, DB query, cache, queue, background job, file I/O, logging, rate limiting, auth/session, config/feature flags), applies that pattern's **Checklist**. Pattern findings are language-agnostic and get classified under the most relevant category.
 3. Reads the target files using `Read`
 4. If a linter configuration exists, reads it to avoid duplicate findings
