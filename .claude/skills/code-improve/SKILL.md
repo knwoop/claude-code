@@ -19,6 +19,7 @@ Use `AskUserQuestion` to ask the user:
    - Refactoring
    - Code Smells
    - Best Practices
+   - Modernization
 
 If `$ARGUMENTS` is provided, treat it as the target path and default to all categories. Still confirm with the user before proceeding.
 
@@ -72,8 +73,8 @@ If file count is ≤ 20, skip the grouping agent — all files form a single gro
 ## Phase 3: Multi-Pass Analysis via Sub Agents
 
 Launch sub agents as follows:
-- **Single group** (≤ 20 files or grouping skipped): 1 sub agent per category → **6 sub agents**
-- **Multiple groups**: 1 sub agent per (category × group) → **6 × N sub agents** (where N = number of groups)
+- **Single group** (≤ 20 files or grouping skipped): 1 sub agent per category → **7 sub agents**
+- **Multiple groups**: 1 sub agent per (category × group) → **7 × N sub agents** (where N = number of groups)
 
 **Launch all sub agents in a single message (multiple `Agent` tool calls in one response) so they run in parallel.** Sequential invocation defeats the purpose of this design.
 
@@ -215,6 +216,24 @@ For language-specific code smells, see `checks/{lang}.md` → `## Code Smells` s
 ### Category: Best Practices (Persona: Language Expert)
 
 Best practices are almost entirely language-idiomatic. Sub agents must read `checks/{lang}.md` → `## Best Practices` section for each detected language as the primary reference for this category, applying the same principle-based reasoning to unlisted but equivalent idioms.
+
+### Category: Modernization (Persona: Language Version Specialist)
+
+This agent analyzes whether the code takes full advantage of the target language's latest stable version.
+
+**Step 0 — Determine the target version:**
+Read the project's version specification file (`go.mod`, `package.json` `tsconfig.json`, `pyproject.toml`, `.python-version`, etc.) to identify the minimum supported language version. All suggestions must be valid for that version or newer.
+
+Analyze for:
+- **Modern stdlib replacements**: standard library packages or functions introduced in recent versions that replace older patterns or third-party dependencies (e.g., a newer stdlib package that makes an external library unnecessary)
+- **Syntax and language feature upgrades**: newer syntax that is more readable, safer, or more performant than the equivalent old-style code
+- **Deprecated API migration**: APIs marked deprecated in the language or its ecosystem, with concrete migration paths to the recommended replacement
+- **Third-party to stdlib migration**: cases where functionality that previously required a third-party library is now available in the standard library
+- **Compiler / runtime improvements**: patterns that can be simplified because newer compiler or runtime versions handle them automatically (e.g., loop variable capture semantics, automatic escape analysis improvements)
+
+For language-specific modernization checks, see `checks/{lang}.md` → `## Modernization` section.
+
+Note: The Cross-cutting "Deprecated / Legacy Usage" section still applies to all other agents. This category goes further — it covers non-deprecated patterns that have strictly better modern alternatives, and provides version-aware migration guidance.
 
 ## Phase 4: Consolidation
 

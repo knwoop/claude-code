@@ -104,3 +104,26 @@ Items below are **illustrative examples grouped by principle**, not an exhaustiv
 **Naming** — `is` / `has` / `should` / `can` prefix for booleans; meaningful names; English identifiers.
 
 **Module organization** — imports ordered (external → internal → relative); no global variables; export only what's needed.
+
+## Modernization
+
+**Read `tsconfig.json` / `package.json`** to determine the target ES version and TypeScript version. All suggestions must be valid for those versions.
+
+**TypeScript version features** — e.g.:
+- `satisfies` operator (TS 4.9+) over `as const` + manual type checks
+- `const` type parameters (TS 5.0+) for inferred literal types
+- `using` / `await using` for resource management (TS 5.2+ with ES2022+ target)
+- `NoInfer<T>` utility type (TS 5.4+) to prevent unwanted inference
+
+**ES version features** — e.g.:
+- `Object.groupBy` / `Map.groupBy` (ES2024) over manual reduce-based grouping
+- `Array.prototype.at()` (ES2022) for negative indexing
+- `structuredClone` (ES2022) over `JSON.parse(JSON.stringify(...))` for deep copy
+- `Error.cause` (ES2022) for error chaining
+- Top-level `await` (ES2022) where applicable
+- `Promise.withResolvers` (ES2024) over manual Promise constructor pattern
+
+**Ecosystem modernization** — e.g.:
+- Native `fetch` (Node 18+) over `node-fetch` / `axios` for simple HTTP
+- `node:test` (Node 18+) as potential alternative to third-party test runners
+- ES modules over CommonJS `require` where the project supports it

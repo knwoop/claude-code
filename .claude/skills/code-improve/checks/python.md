@@ -92,3 +92,25 @@ Items below are **illustrative examples grouped by principle**, not an exhaustiv
 **Modern idioms** — `pathlib.Path` over `os.path`; f-strings over `.format()`; `enum.Enum` / `StrEnum` over string constants; `dataclass(frozen=True)` / `NamedTuple` for immutable data.
 
 **Module hygiene** — `logging` module over `print`; `__all__` for explicit exports; clean `__init__.py`.
+
+## Modernization
+
+**Read `pyproject.toml` / `.python-version` / `setup.cfg`** to determine the minimum supported Python version. All suggestions must be valid for that version.
+
+**Syntax and language features** — e.g.:
+- `match` / `case` (3.10+) for complex dispatch over `if`/`elif` chains
+- `type` statement for type aliases (3.12+) over `TypeAlias`
+- Exception groups and `except*` (3.11+) for concurrent error handling
+- `Self` type (3.11+) over manual `TypeVar` for return-self patterns
+- Walrus operator `:=` (3.8+) for assignment in conditions
+
+**Stdlib replacements** — e.g.:
+- `tomllib` (3.11+) over `toml` third-party package
+- `pathlib` over `os.path` for file operations
+- `dataclasses.field(kw_only=True)` (3.10+) for keyword-only dataclass fields
+- `StrEnum` (3.11+) over `str, Enum` mix-in
+
+**Type system evolution** — e.g.:
+- Built-in generics `list[int]`, `dict[str, Any]` (3.9+) over `typing.List`, `typing.Dict`
+- `X | Y` union syntax (3.10+) over `Union[X, Y]`
+- `ParamSpec` / `Concatenate` (3.10+) for decorator typing

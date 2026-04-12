@@ -142,3 +142,23 @@ Items below are **illustrative examples grouped by principle**, not an exhaustiv
 **Testing** — table-driven tests with `t.Run`; `t.Helper()` in helpers; `cmp.Diff` over `reflect.DeepEqual`.
 
 **Project structure** — `internal/` for non-exported packages; `cmd/` for binaries; zero-value useful structs; single-word lowercase package names.
+
+## Modernization
+
+**Read `go.mod`** to determine the module's Go version. All suggestions must be valid for that version.
+
+**Stdlib replacements in recent versions** — e.g.:
+- `log/slog` (Go 1.21+) over third-party structured loggers (`zap`, `logrus`) for new code
+- `slices`, `maps` packages (Go 1.21+) over hand-rolled sort/search/clone
+- `errors.Join` (Go 1.20+) over manual multi-error aggregation
+- `context.WithCancelCause` / `context.AfterFunc` (Go 1.21+/1.23+) for richer cancellation
+
+**Language feature upgrades** — e.g.:
+- Range-over-func (Go 1.23+) for iterator patterns
+- Loop variable per-iteration scoping (Go 1.22+) — old `v := v` capture workaround is unnecessary
+- Generic types / functions (Go 1.18+) replacing `interface{}` + type assertions
+
+**Third-party to stdlib migration** — e.g.:
+- `golang.org/x/exp/slices` → `slices` (Go 1.21+)
+- `golang.org/x/exp/maps` → `maps` (Go 1.21+)
+- `io/ioutil` (deprecated Go 1.16) → `io` / `os` equivalents

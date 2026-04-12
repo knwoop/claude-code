@@ -4,7 +4,7 @@ Cross-cutting checklist for common operational patterns that apply regardless of
 
 These checks are language-agnostic: Go `net/http`, Python `requests`/`httpx`, TypeScript `axios`/`fetch` all exhibit the same pattern and warrant the same checklist.
 
-The ten patterns below are common but not exhaustive — sub agents should apply the same discipline to analogous patterns (e.g., gRPC client, GraphQL resolver, blob storage access) even if not explicitly listed.
+The patterns below are common but not exhaustive — sub agents should apply the same discipline to analogous patterns (e.g., GraphQL resolver, blob storage access) even if not explicitly listed.
 
 Pattern-derived findings should be classified into the most relevant category (Security / Performance / Refactoring / Code Smells / Best Practices) during consolidation.
 
@@ -206,3 +206,33 @@ Pattern-derived findings should be classified into the most relevant category (S
 - [ ] **Stale flag cleanup** — flags removed from code after full rollout (flag debt)
 - [ ] **Observability** — flag evaluations logged / metered for audit and rollback decisions
 - [ ] **Consistent within request** — flag value snapshotted per request, not re-evaluated mid-flow
+
+---
+
+## 11. gRPC Server Setup
+
+**Trigger**: code assembles a gRPC server with interceptor chains
+(Go `grpc.NewServer`, Python `grpc.server`, etc.)
+
+**Checklist**:
+- [ ] **Panic recovery interceptor is outermost** — index 0 in the chain, so it catches panics from all downstream interceptors and handlers
+- [ ] **Default auth interceptor is fail-closed** — unauthenticated by default; services opt in to public access explicitly, not implicitly
+- [ ] **Debug / introspection endpoints gated by environment** — reflection, admin services, verbose error details enabled only in dev/staging, disabled in production
+- [ ] **Graceful shutdown with timeout fallback** — graceful drain with a deadline, falling back to forced stop if draining exceeds the timeout
+- [ ] **Health check registered** — gRPC health service registered for load balancer probes
+- [ ] **Observability interceptors** — logging, metrics, and tracing interceptors present in the chain
+
+---
+
+## 12. gRPC Client Connection
+
+**Trigger**: code establishes gRPC client connections
+(Go `grpc.DialContext` / `grpc.NewClient`, Python `grpc.insecure_channel` / `grpc.secure_channel`, etc.)
+
+**Checklist**:
+- [ ] **Keepalive parameters** — configured for long-lived connections to prevent silent drops behind load balancers / proxies
+- [ ] **Retry policy** — available and opt-in for idempotent RPCs; non-idempotent RPCs fail fast
+- [ ] **Default call timeout / deadline propagation** — every RPC has a deadline, either via default call options or per-call context
+- [ ] **Connection reuse** — client connection shared across callers, not instantiated per request
+- [ ] **TLS verification** — certificate verification enabled for production connections
+- [ ] **Backoff configuration** — connection backoff parameters tuned (not relying on defaults for reconnect storms)
