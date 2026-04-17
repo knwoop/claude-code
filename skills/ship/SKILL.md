@@ -50,7 +50,7 @@ Commit changes, push, and create a Pull Request with a clean `## What` / `## Why
 3. Otherwise: `git push`
 4. Stop and notify the user on failure.
 
-### Step 4: Create PR
+### Step 4: Draft PR title
 
 **Never switch branches. All operations happen on the current branch.**
 
@@ -69,21 +69,24 @@ Analyze `git log $BASE_BRANCH..$CURRENT_BRANCH --oneline` and `git diff $BASE_BR
   - `docs: introduce chromatic storybook`
   - `terraform/fastly: prevent Vary header from degrading cache hit rate`
 
-#### PR Description structure
+### Step 5: Draft PR description
+
+Write the ## What and ## Why sections. What is a **decision tool**, not a description or summary.
 
 ```markdown
 ## What
 
-[1-3 sentences describing what this PR achieves — the goal, purpose, and outcome. NOT how it is implemented.]
+<One sentence: what problem disappears when this PR is merged?>
 
 ## Why
 
-[1-3 sentences explaining why this change is needed. What problem does it solve, what requirement does it fulfill, or what risk does it mitigate?]
+<What prompted this? What risk, pain, or requirement makes this necessary?>
 ```
 
 **## What rules:**
-- Describe the **goal, purpose, and outcome** of this PR
-- Do NOT describe implementation details (the diff shows "how")
+- Lead with the **problem being solved**, not the solution or technology
+- Do NOT describe implementation details — the diff shows "how"
+- Do NOT write a summary or overview — What is a decision tool, not a description
 - The reader should understand the value/outcome without reading code
 - Write in plain sentences. Use bullet points only when listing truly independent items
 
@@ -95,7 +98,38 @@ Analyze `git log $BASE_BRANCH..$CURRENT_BRANCH --oneline` and `git diff $BASE_BR
 **Optional sections:**
 - If ticket numbers are provided, add `## Related Tickets` listing them (e.g. `KX-8610, KX-8611`)
 
-#### Execution
+### Step 6: Self-check PR description (MANDATORY — do not skip)
+
+Before proceeding to Step 7, review EVERY sentence in ## What against all 4 filters below.
+If ANY filter matches ANY sentence, rewrite that sentence and re-run the check.
+Do NOT proceed to Step 7 until all sentences pass all filters.
+
+**Filter 1 — Function/method/API name:**
+Does the sentence mention a specific function, method, callback, API, or class name
+(e.g. `set_after_send`, `useEffect`, `handleClick`, `SecretStore::open`)?
+-> Remove it. Describe the outcome instead.
+
+**Filter 2 — "How" verb:**
+Does the sentence use verbs like "migrate to", "refactor into", "move X into Y",
+"replace X with Y", "consolidate into", "extract into", "split into"?
+-> These describe structural changes (how), not goals (what). Rewrite to describe what the user/system gains.
+
+**Filter 3 — Technical mechanism:**
+Does the sentence describe WHERE or HOW the code runs
+(e.g. "in the callback", "at the middleware layer", "via a cron job", "using a goroutine")?
+-> Remove the mechanism. Describe the behavior change.
+
+**Filter 4 — Diff-readable:**
+Could the reader learn this information just by reading the diff?
+-> If yes, it's "how" and should not be in What.
+
+**Examples:**
+- BAD: "Move cache TTL control into the set_after_send callback" -- function name (filter 1) + "move into" (filter 2) + "callback" (filter 3)
+- GOOD: "Ensure CDN caches only successful responses, with a default 7-day TTL as fallback for missing origin Cache-Control"
+- BAD: "Replace fmt.Errorf with liberrors.Wrap across the repository layer" -- function names (filter 1) + "replace with" (filter 2) + "repository layer" (filter 3)
+- GOOD: "Standardize error wrapping to include stack traces and structured context in all repository errors"
+
+### Step 7: Create PR
 
 Create the PR as **draft** by default. Use `--assignee @me`.
 
