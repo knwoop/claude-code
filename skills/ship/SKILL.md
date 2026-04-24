@@ -1,44 +1,31 @@
 ---
 name: ship
-description: Commit, push, and create a PR with ## What / ## Why description. English title and branch name following project conventions.
+description: Commit, push, and create a PR with ## What / ## Why description. Title, branch name, and description follow the host repository's conventions.
 ---
 
 # Ship Skill
 
-Commit changes, push, and create a Pull Request with a clean `## What` / `## Why` description format. Titles, branch names, and descriptions are all in English.
+Commit changes, push, and create a Pull Request with a clean `## What` / `## Why` description. Match whatever conventions the host repository already uses (language, scope prefixes, commit style) — this skill never imposes its own.
 
 ## Steps
 
-### Step 1: Detect affected service
+### Step 1: Understand the change and the repo's conventions
 
-1. Determine base branch: use the user-provided base branch, or default to `main`. Store as `BASE_BRANCH`.
-2. Run `git diff $BASE_BRANCH...HEAD --name-only` to list changed files.
-3. Classify the primary affected service by file path:
-   - **ios**: `mobile/kauche-ios/`
-   - **android**: `mobile/kauche-android/`
-   - **customer**: `server/services/customer/`
-   - **web/farm**: `web/farm/`
-   - **web/farm-line**: `web/farm-line/`
-   - **web/farm-shared**: `web/farm-shared/`
-   - **farm**: `server/services/farm/`
-   - **recommend**: `server/services/recommend/`
-   - **commerce-product-recommendation**: `server/services/commerce-product-recommendation/`
-   - **partner**: `server/services/partner/`
-   - **account**: `server/services/account/`
-   - **walk**: `server/services/walk/`
-   - **web/ope**: `web/ope/`
-   - **web/partner**: `web/partner/`
-   - **other**: none of the above or shared/common logic
-   - **multiple**: changes span multiple services equally
-4. If **other** or **multiple**, pick the most fitting label from the list above.
-5. Store result as `SERVICE`.
+1. Determine base branch: use the user-provided base branch, or default to `main` (fall back to `master` if `main` does not exist). Store as `BASE_BRANCH`.
+2. Run in parallel:
+   - `git diff $BASE_BRANCH...HEAD --name-only` — list changed files
+   - `git diff $BASE_BRANCH...HEAD` — inspect the actual changes
+   - `git log $BASE_BRANCH..HEAD --oneline` — all commits on this branch
+   - `git log --oneline -20` on `$BASE_BRANCH` — learn the repo's commit/PR title style
+3. Infer a **scope label** from the changed file paths *only if* the repo uses scope prefixes in its commit/PR titles (e.g. `auth:`, `feat(api):`, `web/ui:`). Pick the dominant top-level directory or package when changes span multiple areas. If the repo does not use scopes, skip this.
+4. Note the title language (English, Japanese, etc.). Default to English unless the repo clearly uses another language.
 
 ### Step 2: Create commit
 
-1. Read `.ai/commands/commit.md` and follow its instructions.
-2. If the user requested staged-only mode, only commit already-staged files.
-3. Otherwise, analyze all changes, stage relevant files, and commit with a conventional commit message.
-4. **Do NOT append `Co-Authored-By` lines to commit messages.**
+1. Follow the repository's commit conventions — match the style you observed in Step 1.
+2. If the user requested staged-only mode (`-s`), only commit already-staged files.
+3. Otherwise, stage the relevant files by name (never `git add -A` or `git add .`) and commit with a message matching the project's style.
+4. **Do NOT append `Co-Authored-By` lines** unless the project's existing history uses them.
 
 ### Step 3: Push
 
@@ -54,24 +41,18 @@ Commit changes, push, and create a Pull Request with a clean `## What` / `## Why
 
 **Never switch branches. All operations happen on the current branch.**
 
-Analyze `git log $BASE_BRANCH..$CURRENT_BRANCH --oneline` and `git diff $BASE_BRANCH...$CURRENT_BRANCH` to understand the full set of changes.
+Re-read `git log $BASE_BRANCH..HEAD --oneline` and the full diff to understand what the PR achieves as a whole — the title describes the PR, not just the latest commit.
 
-#### PR Title rules
+#### PR title rules
 
-- **English only**
-- Format: `{SERVICE}: concise summary of what this PR achieves`
-- Under 70 characters
-- Use conventional-commit style type prefix when appropriate (e.g. `fix(customer):`, `feat(farm):`, `refactor(web/farm):`, `docs:`, `chore:`)
-- Examples from this repo:
-  - `web/farm: replace IconGroup farmStatus props with individual fields`
-  - `customer: remove gRPC status dependency from recommendation_service`
-  - `fix(customer): move FarmCouponAutoApply lock to subtests`
-  - `docs: introduce chromatic storybook`
-  - `terraform/fastly: prevent Vary header from degrading cache hit rate`
+- Match the repo's language and style (see Step 1).
+- Under 70 characters.
+- If the repo uses conventional-commit style, apply it: `{type}({scope}): summary` or `{scope}: summary` (e.g. `feat(auth):`, `fix(api):`, `refactor(web):`, `docs:`, `chore:`). Otherwise write a plain imperative summary.
+- Describe what this PR **achieves**, not the structural change. "add retry with exponential backoff to webhook delivery" beats "refactor webhook client".
 
 ### Step 5: Draft PR description
 
-Write the ## What and ## Why sections. What is a **decision tool**, not a description or summary.
+Write `## What` and `## Why` sections. `## What` is a **decision tool**, not a description or summary — a reviewer or future engineer should be able to decide whether this PR matters to them without reading the diff.
 
 ```markdown
 ## What
@@ -84,50 +65,47 @@ Write the ## What and ## Why sections. What is a **decision tool**, not a descri
 ```
 
 **## What rules:**
-- Lead with the **problem being solved**, not the solution or technology
-- Do NOT describe implementation details — the diff shows "how"
-- Do NOT write a summary or overview — What is a decision tool, not a description
-- The reader should understand the value/outcome without reading code
-- Write in plain sentences. Use bullet points only when listing truly independent items
+- Lead with the **problem being solved** or the **outcome**, not the solution or technology.
+- Do NOT describe implementation details — the diff shows "how".
+- Do NOT write a summary or overview.
+- The reader should understand the value/outcome without reading code.
+- Write in plain sentences. Use bullet points only when listing truly independent items.
 
 **## Why rules:**
-- Explain the **motivation and necessity** for the change
-- Why now? What prompted this? (bug report, requirement, tech debt, performance issue, etc.)
-- Write in plain sentences. Use bullet points only when listing truly independent items
-
-**Optional sections:**
-- If ticket numbers are provided, add `## Related Tickets` listing them (e.g. `KX-8610, KX-8611`)
+- Explain the **motivation and necessity** for the change.
+- Why now? What prompted this? (bug report, requirement, tech debt, performance issue, incident, etc.)
+- Write in plain sentences. Use bullet points only when listing truly independent items.
 
 ### Step 6: Self-check PR description (MANDATORY — do not skip)
 
-Before proceeding to Step 7, review EVERY sentence in ## What against all 4 filters below.
+Before proceeding to Step 7, review EVERY sentence in `## What` against all 4 filters below.
 If ANY filter matches ANY sentence, rewrite that sentence and re-run the check.
 Do NOT proceed to Step 7 until all sentences pass all filters.
 
 **Filter 1 — Function/method/API name:**
-Does the sentence mention a specific function, method, callback, API, or class name
+Does the sentence mention a specific function, method, callback, API, class, or variable name
 (e.g. `set_after_send`, `useEffect`, `handleClick`, `SecretStore::open`)?
--> Remove it. Describe the outcome instead.
+→ Remove it. Describe the outcome instead.
 
 **Filter 2 — "How" verb:**
 Does the sentence use verbs like "migrate to", "refactor into", "move X into Y",
 "replace X with Y", "consolidate into", "extract into", "split into"?
--> These describe structural changes (how), not goals (what). Rewrite to describe what the user/system gains.
+→ These describe structural changes (how), not goals (what). Rewrite to describe what the user/system gains.
 
 **Filter 3 — Technical mechanism:**
 Does the sentence describe WHERE or HOW the code runs
 (e.g. "in the callback", "at the middleware layer", "via a cron job", "using a goroutine")?
--> Remove the mechanism. Describe the behavior change.
+→ Remove the mechanism. Describe the behavior change.
 
 **Filter 4 — Diff-readable:**
 Could the reader learn this information just by reading the diff?
--> If yes, it's "how" and should not be in What.
+→ If yes, it's "how" and should not be in What.
 
 **Examples:**
-- BAD: "Move cache TTL control into the set_after_send callback" -- function name (filter 1) + "move into" (filter 2) + "callback" (filter 3)
+- BAD: "Move cache TTL control into the `set_after_send` callback" — function name (filter 1) + "move into" (filter 2) + "callback" (filter 3)
 - GOOD: "Ensure CDN caches only successful responses, with a default 7-day TTL as fallback for missing origin Cache-Control"
-- BAD: "Replace fmt.Errorf with liberrors.Wrap across the repository layer" -- function names (filter 1) + "replace with" (filter 2) + "repository layer" (filter 3)
-- GOOD: "Standardize error wrapping to include stack traces and structured context in all repository errors"
+- BAD: "Replace `fmt.Errorf` with `liberrors.Wrap` across the repository layer" — function names (filter 1) + "replace with" (filter 2) + "repository layer" (filter 3)
+- GOOD: "Standardize error wrapping so production errors always carry stack traces and structured context"
 
 ### Step 7: Create PR
 
@@ -136,7 +114,6 @@ Create the PR as **draft** by default. Use `--assignee @me`.
 If the user specified:
 - reviewers: add `--reviewer` flags
 - open mode: omit `--draft`
-- ticket numbers: include `## Related Tickets` section
 - base branch: use it instead of `main`
 
 After PR creation, print the PR URL.
@@ -146,9 +123,8 @@ After PR creation, print the PR URL.
 ```
 /ship                          # commit all, push, draft PR to main
 /ship -s                       # staged files only
-/ship -t KX-8610               # include ticket number
 /ship -b release/v1.0          # target a release branch
 /ship -r reviewer1,reviewer2   # assign reviewers
 /ship -o                       # create as open (not draft)
-/ship -s -t KX-8610 -o         # combine options
+/ship -s -o                    # combine options
 ```
